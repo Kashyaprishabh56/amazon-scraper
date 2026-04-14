@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import re
+import json
+import os
 from playwright.sync_api import sync_playwright
 
 # ✅ GOOGLE SHEETS IMPORTS
@@ -8,8 +10,11 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Amazon Scraper", layout="wide")
-st.title("🛒 Amazon Scraper (Stable Cloud Version ✅)")
+st.title("🛒 Amazon Scraper (Render Deployment 🚀)")
 
+# ==========================
+# 📥 INPUT
+# ==========================
 urls_input = st.text_area(
     "Paste Amazon URLs (one per line)",
     height=200
@@ -30,8 +35,8 @@ def upload_to_sheets(df, custom_name=None):
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # 🔐 USE STREAMLIT SECRETS
-    creds_dict = st.secrets["gcp_service_account"]
+    # 🔐 LOAD FROM RENDER ENV VARIABLE
+    creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
 
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
         creds_dict, scope
@@ -44,6 +49,7 @@ def upload_to_sheets(df, custom_name=None):
     except:
         spreadsheet = client.create("Amazon Scraper Data")
 
+    # Sheet naming
     if custom_name and custom_name.strip():
         sheet_name = custom_name.strip()
     else:
@@ -65,6 +71,7 @@ def upload_to_sheets(df, custom_name=None):
 def scrape_single(page, url):
     try:
         page.goto(url, timeout=40000)
+
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(2000)
 
@@ -95,7 +102,7 @@ def scrape_single(page, url):
                 except:
                     pass
 
-        # Availability check
+        # Availability
         availability = ""
         try:
             availability = page.locator("#availability").text_content().lower()
@@ -145,7 +152,7 @@ def scrape_single(page, url):
         }
 
 # ==========================
-# 🔁 MAIN SCRAPER (FIXED)
+# 🔁 MAIN SCRAPER (RENDER SAFE)
 # ==========================
 def scrape_amazon(urls):
     all_data = []
@@ -156,13 +163,11 @@ def scrape_amazon(urls):
             args=[
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--single-process",
-                "--disable-extensions"
+                "--disable-gpu"
             ]
         )
 
-        # ✅ SINGLE PAGE (IMPORTANT FIX)
+        # ✅ SINGLE PAGE (STABLE)
         page = browser.new_page()
 
         for url in urls:
@@ -184,6 +189,7 @@ if st.button("🚀 Run Scraper"):
 
     if not urls:
         st.warning("⚠️ Please enter at least one URL")
+
     else:
         df = scrape_amazon(urls)
 
