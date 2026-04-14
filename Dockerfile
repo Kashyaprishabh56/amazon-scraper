@@ -6,8 +6,10 @@ COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# install browsers properly
-RUN playwright install --with-deps
+# 🔥 FORCE correct browser install path
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+RUN playwright install chromium
 
 EXPOSE 8080
 
