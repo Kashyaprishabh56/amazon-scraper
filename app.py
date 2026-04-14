@@ -3,33 +3,28 @@ import pandas as pd
 import re
 import json
 import os
-from playwright.sync_api import sync_playwright
+import asyncio
+from playwright.async_api import async_playwright
 
-# ✅ IMPORTANT FOR RENDER
+# ✅ FIX FOR RENDER
 os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
-# ✅ GOOGLE SHEETS IMPORTS
+# ✅ GOOGLE SHEETS
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Amazon Scraper", layout="wide")
-st.title("🛒 Amazon Scraper (Fast ⚡ + Render Ready)")
+st.title("🚀 Amazon Scraper (ULTRA FAST ⚡⚡)")
 
-# ==========================
-# 📥 INPUT
-# ==========================
-urls_input = st.text_area(
-    "Paste Amazon URLs (one per line)",
-    height=200
-)
+urls_input = st.text_area("Paste Amazon URLs", height=200)
 
 sheet_name_input = st.text_input(
-    "Enter Google Sheet Tab Name (optional)",
-    placeholder="e.g. Mobile_Data_April"
+    "Google Sheet Tab Name",
+    placeholder="e.g. Mobile_Data"
 )
 
 # ==========================
-# 🔁 GOOGLE SHEETS FUNCTION
+# GOOGLE SHEETS
 # ==========================
 def upload_to_sheets(df, custom_name=None):
 
@@ -40,10 +35,7 @@ def upload_to_sheets(df, custom_name=None):
 
     creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
 
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(
-        creds_dict, scope
-    )
-
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
 
     try:
@@ -51,68 +43,43 @@ def upload_to_sheets(df, custom_name=None):
     except:
         spreadsheet = client.create("Amazon Scraper Data")
 
-    # Sheet naming
-    if custom_name and custom_name.strip():
-        sheet_name = custom_name.strip()
+    if custom_name:
+        sheet_name = custom_name
     else:
         sheet_name = f"Run_{len(spreadsheet.worksheets()) + 1}"
 
-    worksheet = spreadsheet.add_worksheet(
-        title=sheet_name,
-        rows="1000",
-        cols="20"
-    )
-
+    worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
     worksheet.update([df.columns.values.tolist()] + df.values.tolist())
 
     return True
 
 # ==========================
-# 🔁 SINGLE SCRAPE FUNCTION
+# ASYNC SCRAPER
 # ==========================
-def scrape_single(page, url):
+async def scrape_one(page, url):
     try:
-        page.goto(url, timeout=30000, wait_until="domcontentloaded")
-        page.wait_for_timeout(800)  # ⚡ reduced wait
+        await page.goto(url, timeout=30000)
 
         # TITLE
         try:
-            title = page.locator("#productTitle").text_content(timeout=4000).strip()
+            title = await page.locator("#productTitle").text_content(timeout=4000)
+            title = title.strip()
         except:
-            title = page.title()
+            title = await page.title()
 
         # PRICE
         price = "NOT FOUND"
-
-        price_selectors = [
+        selectors = [
             ".a-price .a-offscreen",
-            "#corePriceDisplay_desktop_feature_div .a-offscreen",
-            "span.a-price-whole"
+            "#corePriceDisplay_desktop_feature_div .a-offscreen"
         ]
 
-        found_price = None
-
-        for sel in price_selectors:
-            if page.locator(sel).count() > 0:
-                try:
-                    text = page.locator(sel).first.text_content().strip()
-                    if text and "₹" in text:
-                        found_price = text
-                        break
-                except:
-                    pass
-
-        # Availability
-        availability = ""
-        try:
-            availability = page.locator("#availability").text_content().lower()
-        except:
-            pass
-
-        if "unavailable" in availability:
-            price = "NOT FOUND"
-        elif found_price:
-            price = found_price
+        for sel in selectors:
+            if await page.locator(sel).count() > 0:
+                text = await page.locator(sel).first.text_content()
+                if text and "₹" in text:
+                    price = text.strip()
+                    break
 
         # SELLER
         seller = "N/A"
@@ -123,12 +90,9 @@ def scrape_single(page, url):
         ]
 
         for sel in seller_selectors:
-            if page.locator(sel).count() > 0:
-                try:
-                    seller = page.locator(sel).first.text_content().strip()
-                    break
-                except:
-                    pass
+            if await page.locator(sel).count() > 0:
+                seller = (await page.locator(sel).first.text_content()).strip()
+                break
 
         # ASIN
         match = re.search(r"/dp/([A-Z0-9]{10})", url)
@@ -152,80 +116,85 @@ def scrape_single(page, url):
         }
 
 # ==========================
-# 🔁 MAIN SCRAPER (FAST ⚡)
+# BATCH PROCESSOR (SAFE)
 # ==========================
-def scrape_amazon(urls):
-    all_data = []
+async def scrape_batch(urls):
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu"
-            ]
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
 
-        # ✅ REUSE CONTEXT
-        context = browser.new_context()
+        context = await browser.new_context()
 
-        # ✅ BLOCK HEAVY RESOURCES (BIG SPEED BOOST)
-        context.route("**/*", lambda route, request: (
-            route.abort() if request.resource_type in ["image", "stylesheet", "font"]
-            else route.continue_()
-        ))
+        # 🚀 BLOCK HEAVY FILES
+        await context.route("**/*", lambda route, request:
+            asyncio.create_task(
+                route.abort() if request.resource_type in ["image", "font", "stylesheet"]
+                else route.continue_()
+            )
+        )
 
-        # ⚡ PARALLEL TABS
-        pages = [context.new_page() for _ in range(min(6, len(urls)))]
+        tasks = []
+        for url in urls:
+            page = await context.new_page()
+            tasks.append(scrape_one(page, url))
 
-        for i, url in enumerate(urls):
-            page = pages[i % len(pages)]
+        results = await asyncio.gather(*tasks)
 
-            st.write(f"⚡ Fetching: {url}")
-
-            data = scrape_single(page, url)
-            all_data.append(data)
-
-        browser.close()
-
-    return pd.DataFrame(all_data)
+        await browser.close()
+        return results
 
 # ==========================
-# ▶️ RUN BUTTON
+# MAIN FUNCTION
 # ==========================
-if st.button("🚀 Run Scraper"):
+def run_scraper(urls):
+
+    # ⚡ BATCH SIZE (SAFE FOR RENDER)
+    BATCH_SIZE = 5
+
+    all_results = []
+
+    for i in range(0, len(urls), BATCH_SIZE):
+        batch = urls[i:i+BATCH_SIZE]
+
+        st.write(f"⚡ Processing batch {i//BATCH_SIZE + 1}")
+
+        results = asyncio.run(scrape_batch(batch))
+        all_results.extend(results)
+
+    return pd.DataFrame(all_results)
+
+# ==========================
+# UI BUTTON
+# ==========================
+if st.button("🚀 Run Ultra Fast Scraper"):
 
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
 
     if not urls:
-        st.warning("⚠️ Please enter at least one URL")
-
+        st.warning("Enter URLs")
     else:
-        df = scrape_amazon(urls)
+        df = run_scraper(urls)
 
         st.session_state["df_data"] = df
 
-        st.success("✅ Scraping Completed")
-
+        st.success("✅ Done (Ultra Fast)")
         st.dataframe(df, width='stretch')
 
         st.download_button(
-            "📥 Download CSV",
+            "Download CSV",
             df.to_csv(index=False),
-            file_name="amazon_products.csv",
-            mime="text/csv"
+            "amazon_data.csv"
         )
 
 # ==========================
-# ☁️ GOOGLE SHEETS BUTTON
+# GOOGLE SHEETS
 # ==========================
 if "df_data" in st.session_state:
 
-    if st.button("☁️ Upload to Google Sheets"):
+    if st.button("Upload to Google Sheets"):
 
-        try:
-            upload_to_sheets(st.session_state["df_data"], sheet_name_input)
-            st.success("✅ Uploaded to Google Sheets")
-        except Exception as e:
-            st.error(f"❌ Upload failed: {e}")
+        upload_to_sheets(st.session_state["df_data"], sheet_name_input)
+        st.success("Uploaded Successfully 🚀")
