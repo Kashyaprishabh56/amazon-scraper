@@ -26,7 +26,7 @@ sheet_name_input = st.text_input(
 )
 
 # ==========================
-# 🔁 GOOGLE SHEETS FUNCTION
+# 🔁 GOOGLE SHEETS FUNCTION (FIXED)
 # ==========================
 def upload_to_sheets(df, custom_name=None):
 
@@ -35,8 +35,12 @@ def upload_to_sheets(df, custom_name=None):
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # 🔐 LOAD FROM RENDER ENV VARIABLE
-    creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    # ✅ SAFE ENV VARIABLE LOAD
+    try:
+        creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
+    except:
+        st.error("❌ GOOGLE_CREDENTIALS not found in Render Environment")
+        st.stop()
 
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
         creds_dict, scope
@@ -48,6 +52,13 @@ def upload_to_sheets(df, custom_name=None):
         spreadsheet = client.open("Amazon Scraper Data")
     except:
         spreadsheet = client.create("Amazon Scraper Data")
+
+        # ✅ AUTO SHARE FIX
+        spreadsheet.share(
+            creds_dict["client_email"],
+            perm_type="user",
+            role="writer"
+        )
 
     # Sheet naming
     if custom_name and custom_name.strip():
@@ -70,10 +81,10 @@ def upload_to_sheets(df, custom_name=None):
 # ==========================
 def scrape_single(page, url):
     try:
-        page.goto(url, timeout=40000)
+        page.goto(url, timeout=30000)
 
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(1000)
 
         # TITLE
         try:
@@ -167,7 +178,6 @@ def scrape_amazon(urls):
             ]
         )
 
-        # ✅ SINGLE PAGE (STABLE)
         page = browser.new_page()
 
         for url in urls:
