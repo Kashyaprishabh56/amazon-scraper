@@ -1,8 +1,11 @@
+import os
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
 import streamlit as st
 import pandas as pd
 import re
 import json
-import os
+import time
 from playwright.sync_api import sync_playwright
 
 # ✅ GOOGLE SHEETS IMPORTS
@@ -10,7 +13,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Amazon Scraper", layout="wide")
-st.title("🛒 Amazon Scraper (Render Deployment 🚀)")
+st.title("🛒 Amazon Scraper (Fast + Cloud Ready ⚡)")
 
 # ==========================
 # 📥 INPUT
@@ -26,7 +29,7 @@ sheet_name_input = st.text_input(
 )
 
 # ==========================
-# 🔁 GOOGLE SHEETS FUNCTION (FIXED)
+# 🔁 GOOGLE SHEETS FUNCTION
 # ==========================
 def upload_to_sheets(df, custom_name=None):
 
@@ -35,11 +38,10 @@ def upload_to_sheets(df, custom_name=None):
         "https://www.googleapis.com/auth/drive"
     ]
 
-    # ✅ SAFE ENV VARIABLE LOAD
     try:
         creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
     except:
-        st.error("❌ GOOGLE_CREDENTIALS not found in Render Environment")
+        st.error("❌ GOOGLE_CREDENTIALS not found in Render")
         st.stop()
 
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
@@ -53,14 +55,13 @@ def upload_to_sheets(df, custom_name=None):
     except:
         spreadsheet = client.create("Amazon Scraper Data")
 
-        # ✅ AUTO SHARE FIX
+        # Auto share
         spreadsheet.share(
             creds_dict["client_email"],
             perm_type="user",
             role="writer"
         )
 
-    # Sheet naming
     if custom_name and custom_name.strip():
         sheet_name = custom_name.strip()
     else:
@@ -82,28 +83,26 @@ def upload_to_sheets(df, custom_name=None):
 def scrape_single(page, url):
     try:
         page.goto(url, timeout=30000)
-
         page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(1000)
+        page.wait_for_timeout(800)
 
         # TITLE
         try:
-            title = page.locator("#productTitle").text_content(timeout=5000).strip()
+            title = page.locator("#productTitle").text_content(timeout=4000).strip()
         except:
             title = page.title()
 
         # PRICE
         price = "NOT FOUND"
+        found_price = None
 
-        price_selectors = [
+        selectors = [
             ".a-price .a-offscreen",
             "#corePriceDisplay_desktop_feature_div .a-offscreen",
             "span.a-price-whole"
         ]
 
-        found_price = None
-
-        for sel in price_selectors:
+        for sel in selectors:
             if page.locator(sel).count() > 0:
                 try:
                     text = page.locator(sel).first.text_content().strip()
@@ -163,10 +162,12 @@ def scrape_single(page, url):
         }
 
 # ==========================
-# 🔁 MAIN SCRAPER (RENDER SAFE)
+# 🔁 MAIN SCRAPER (FAST VERSION)
 # ==========================
 def scrape_amazon(urls):
     all_data = []
+
+    MAX_WORKERS = 3  # ⚠️ safe for Render
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -178,13 +179,24 @@ def scrape_amazon(urls):
             ]
         )
 
-        page = browser.new_page()
+        pages = [browser.new_page() for _ in range(MAX_WORKERS)]
 
-        for url in urls:
+        progress_bar = st.progress(0)
+        total = len(urls)
+
+        for i, url in enumerate(urls):
+            page = pages[i % MAX_WORKERS]
+
             st.write(f"⚡ Fetching: {url}")
 
             data = scrape_single(page, url)
             all_data.append(data)
+
+            # progress update
+            progress_bar.progress((i + 1) / total)
+
+            # small delay (anti-block)
+            time.sleep(0.5)
 
         browser.close()
 
