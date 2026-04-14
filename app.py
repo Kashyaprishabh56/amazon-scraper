@@ -1,19 +1,19 @@
-import os
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
-
 import streamlit as st
 import pandas as pd
 import re
 import json
-import time
+import os
 from playwright.sync_api import sync_playwright
+
+# ✅ IMPORTANT FOR RENDER
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 # ✅ GOOGLE SHEETS IMPORTS
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Amazon Scraper", layout="wide")
-st.title("🛒 Amazon Scraper (Fast + Cloud Ready ⚡)")
+st.title("🛒 Amazon Scraper (Fast ⚡ + Render Ready)")
 
 # ==========================
 # 📥 INPUT
@@ -38,11 +38,7 @@ def upload_to_sheets(df, custom_name=None):
         "https://www.googleapis.com/auth/drive"
     ]
 
-    try:
-        creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-    except:
-        st.error("❌ GOOGLE_CREDENTIALS not found in Render")
-        st.stop()
+    creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
 
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
         creds_dict, scope
@@ -55,13 +51,7 @@ def upload_to_sheets(df, custom_name=None):
     except:
         spreadsheet = client.create("Amazon Scraper Data")
 
-        # Auto share
-        spreadsheet.share(
-            creds_dict["client_email"],
-            perm_type="user",
-            role="writer"
-        )
-
+    # Sheet naming
     if custom_name and custom_name.strip():
         sheet_name = custom_name.strip()
     else:
@@ -82,9 +72,8 @@ def upload_to_sheets(df, custom_name=None):
 # ==========================
 def scrape_single(page, url):
     try:
-        page.goto(url, timeout=30000)
-        page.wait_for_load_state("domcontentloaded")
-        page.wait_for_timeout(800)
+        page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        page.wait_for_timeout(800)  # ⚡ reduced wait
 
         # TITLE
         try:
@@ -94,15 +83,16 @@ def scrape_single(page, url):
 
         # PRICE
         price = "NOT FOUND"
-        found_price = None
 
-        selectors = [
+        price_selectors = [
             ".a-price .a-offscreen",
             "#corePriceDisplay_desktop_feature_div .a-offscreen",
             "span.a-price-whole"
         ]
 
-        for sel in selectors:
+        found_price = None
+
+        for sel in price_selectors:
             if page.locator(sel).count() > 0:
                 try:
                     text = page.locator(sel).first.text_content().strip()
@@ -162,12 +152,10 @@ def scrape_single(page, url):
         }
 
 # ==========================
-# 🔁 MAIN SCRAPER (FAST VERSION)
+# 🔁 MAIN SCRAPER (FAST ⚡)
 # ==========================
 def scrape_amazon(urls):
     all_data = []
-
-    MAX_WORKERS = 3  # ⚠️ safe for Render
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -179,24 +167,25 @@ def scrape_amazon(urls):
             ]
         )
 
-        pages = [browser.new_page() for _ in range(MAX_WORKERS)]
+        # ✅ REUSE CONTEXT
+        context = browser.new_context()
 
-        progress_bar = st.progress(0)
-        total = len(urls)
+        # ✅ BLOCK HEAVY RESOURCES (BIG SPEED BOOST)
+        context.route("**/*", lambda route, request: (
+            route.abort() if request.resource_type in ["image", "stylesheet", "font"]
+            else route.continue_()
+        ))
+
+        # ⚡ PARALLEL TABS
+        pages = [context.new_page() for _ in range(min(6, len(urls)))]
 
         for i, url in enumerate(urls):
-            page = pages[i % MAX_WORKERS]
+            page = pages[i % len(pages)]
 
             st.write(f"⚡ Fetching: {url}")
 
             data = scrape_single(page, url)
             all_data.append(data)
-
-            # progress update
-            progress_bar.progress((i + 1) / total)
-
-            # small delay (anti-block)
-            time.sleep(0.5)
 
         browser.close()
 
