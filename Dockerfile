@@ -6,10 +6,13 @@ COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 🔥 FORCE correct browser install path
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# ✅ FORCE CLEAN INSTALL (no cache issue)
+RUN rm -rf /ms-playwright
 
-RUN playwright install chromium
+# ✅ INSTALL ALL BROWSERS PROPERLY
+RUN playwright install --with-deps chromium
+
+# ✅ VERIFY INSTALL (important)
 RUN ls -la /ms-playwright
 
 EXPOSE 8080
