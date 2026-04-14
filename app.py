@@ -4,6 +4,7 @@ import re
 import json
 import os
 import asyncio
+import random
 from playwright.async_api import async_playwright
 
 # ✅ FIX FOR RENDER
@@ -14,7 +15,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Amazon Scraper", layout="wide")
-st.title("🚀 Amazon Scraper (ULTRA FAST ⚡⚡)")
+st.title("🚀 Amazon Scraper (Production Level 🔥)")
 
 urls_input = st.text_area("Paste Amazon URLs", height=200)
 
@@ -43,10 +44,7 @@ def upload_to_sheets(df, custom_name=None):
     except:
         spreadsheet = client.create("Amazon Scraper Data")
 
-    if custom_name:
-        sheet_name = custom_name
-    else:
-        sheet_name = f"Run_{len(spreadsheet.worksheets()) + 1}"
+    sheet_name = custom_name if custom_name else f"Run_{len(spreadsheet.worksheets())+1}"
 
     worksheet = spreadsheet.add_worksheet(title=sheet_name, rows="1000", cols="20")
     worksheet.update([df.columns.values.tolist()] + df.values.tolist())
@@ -54,27 +52,56 @@ def upload_to_sheets(df, custom_name=None):
     return True
 
 # ==========================
-# ASYNC SCRAPER
+# USER AGENTS
+# ==========================
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/119 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/118 Safari/537.36"
+]
+
+# ==========================
+# VALIDATION
+# ==========================
+def is_blocked(title):
+    return (
+        not title or
+        "amazon.in" in title.lower() or
+        "sorry" in title.lower()
+    )
+
+# ==========================
+# SCRAPE ONE
 # ==========================
 async def scrape_one(page, url):
     try:
         await page.goto(url, timeout=30000)
+        await page.wait_for_selector("#productTitle", timeout=8000)
+
+        # delay (anti-bot)
+        await asyncio.sleep(random.uniform(1.2, 2.0))
 
         # TITLE
-        try:
-            title = await page.locator("#productTitle").text_content(timeout=4000)
-            title = title.strip()
-        except:
-            title = await page.title()
+        title = "N/A"
+        selectors = ["#productTitle", "h1 span", "#title span"]
+
+        for sel in selectors:
+            if await page.locator(sel).count() > 0:
+                text = await page.locator(sel).first.text_content()
+                if text and len(text.strip()) > 5:
+                    title = text.strip()
+                    break
 
         # PRICE
         price = "NOT FOUND"
-        selectors = [
+        price_selectors = [
             ".a-price .a-offscreen",
+            "#priceblock_ourprice",
+            "#priceblock_dealprice",
             "#corePriceDisplay_desktop_feature_div .a-offscreen"
         ]
 
-        for sel in selectors:
+        for sel in price_selectors:
             if await page.locator(sel).count() > 0:
                 text = await page.locator(sel).first.text_content()
                 if text and "₹" in text:
@@ -116,7 +143,23 @@ async def scrape_one(page, url):
         }
 
 # ==========================
-# BATCH PROCESSOR (SAFE)
+# RETRY WRAPPER 🔥
+# ==========================
+async def safe_scrape(page, url, retries=3):
+
+    for attempt in range(retries):
+        data = await scrape_one(page, url)
+
+        if is_blocked(data["Title"]) or data["sales_price"] == "NOT FOUND":
+            await page.wait_for_timeout(1500)
+            await page.reload()
+        else:
+            return data
+
+    return data
+
+# ==========================
+# BATCH SCRAPER
 # ==========================
 async def scrape_batch(urls):
 
@@ -126,20 +169,25 @@ async def scrape_batch(urls):
             args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
 
-        context = await browser.new_context()
+        context = await browser.new_context(
+            user_agent=random.choice(USER_AGENTS),
+            locale="en-IN",
+            viewport={"width": 1280, "height": 800}
+        )
 
-        # 🚀 BLOCK HEAVY FILES
+        # block heavy resources
         await context.route("**/*", lambda route, request:
             asyncio.create_task(
-                route.abort() if request.resource_type in ["image", "font", "stylesheet"]
+                route.abort() if request.resource_type in ["image", "stylesheet", "font"]
                 else route.continue_()
             )
         )
 
         tasks = []
+
         for url in urls:
             page = await context.new_page()
-            tasks.append(scrape_one(page, url))
+            tasks.append(safe_scrape(page, url))
 
         results = await asyncio.gather(*tasks)
 
@@ -147,19 +195,17 @@ async def scrape_batch(urls):
         return results
 
 # ==========================
-# MAIN FUNCTION
+# MAIN
 # ==========================
 def run_scraper(urls):
 
-    # ⚡ BATCH SIZE (SAFE FOR RENDER)
-    BATCH_SIZE = 5
-
+    BATCH_SIZE = 4
     all_results = []
 
     for i in range(0, len(urls), BATCH_SIZE):
-        batch = urls[i:i+BATCH_SIZE]
 
-        st.write(f"⚡ Processing batch {i//BATCH_SIZE + 1}")
+        batch = urls[i:i+BATCH_SIZE]
+        st.write(f"⚡ Batch {i//BATCH_SIZE + 1}")
 
         results = asyncio.run(scrape_batch(batch))
         all_results.extend(results)
@@ -167,9 +213,9 @@ def run_scraper(urls):
     return pd.DataFrame(all_results)
 
 # ==========================
-# UI BUTTON
+# UI
 # ==========================
-if st.button("🚀 Run Ultra Fast Scraper"):
+if st.button("🚀 Run Scraper"):
 
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
 
@@ -180,8 +226,8 @@ if st.button("🚀 Run Ultra Fast Scraper"):
 
         st.session_state["df_data"] = df
 
-        st.success("✅ Done (Ultra Fast)")
-        st.dataframe(df, width='stretch')
+        st.success("✅ Completed")
+        st.dataframe(df, width="stretch")
 
         st.download_button(
             "Download CSV",
@@ -195,6 +241,5 @@ if st.button("🚀 Run Ultra Fast Scraper"):
 if "df_data" in st.session_state:
 
     if st.button("Upload to Google Sheets"):
-
         upload_to_sheets(st.session_state["df_data"], sheet_name_input)
-        st.success("Uploaded Successfully 🚀")
+        st.success("Uploaded 🚀")
