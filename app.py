@@ -1,30 +1,31 @@
-import os
-os.system("playwright install")
 import streamlit as st
 import pandas as pd
 import re
+import os
 from playwright.sync_api import sync_playwright
+
+# 🔥 REQUIRED FOR STREAMLIT CLOUD
+os.system("playwright install")
 
 # ✅ GOOGLE SHEETS IMPORTS
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 st.set_page_config(page_title="Amazon Scraper", layout="wide")
-st.title("🛒 Amazon Scraper (Fast Version ⚡)")
+st.title("🛒 Amazon Scraper (Cloud Version ☁️)")
 
 urls_input = st.text_area(
     "Paste Amazon URLs (one per line)",
     height=200
 )
 
-# ✅ NEW INPUT (ADDED)
 sheet_name_input = st.text_input(
     "Enter Google Sheet Tab Name (optional)",
     placeholder="e.g. Mobile_Data_April"
 )
 
 # ==========================
-# 🔁 GOOGLE SHEETS FUNCTION (UPDATED)
+# 🔁 GOOGLE SHEETS FUNCTION (SECRETS VERSION)
 # ==========================
 def upload_to_sheets(df, custom_name=None):
 
@@ -33,14 +34,12 @@ def upload_to_sheets(df, custom_name=None):
         "https://www.googleapis.com/auth/drive"
     ]
 
-    import json
-
+    # 🔐 USE STREAMLIT SECRETS
     creds_dict = st.secrets["gcp_service_account"]
-    
+
     creds = ServiceAccountCredentials.from_json_keyfile_dict(
         creds_dict, scope
     )
-    
 
     client = gspread.authorize(creds)
 
@@ -49,7 +48,7 @@ def upload_to_sheets(df, custom_name=None):
     except:
         spreadsheet = client.create("Amazon Scraper Data")
 
-    # ✅ CUSTOM NAME OR AUTO NAME
+    # Sheet naming
     if custom_name and custom_name.strip():
         sheet_name = custom_name.strip()
     else:
@@ -71,12 +70,10 @@ def upload_to_sheets(df, custom_name=None):
 def scrape_single(page, url):
     try:
         page.goto(url, timeout=40000)
-
         page.wait_for_load_state("domcontentloaded")
         page.mouse.wheel(0, 1500)
 
         # TITLE
-        title = "N/A"
         try:
             title = page.locator("#productTitle").text_content(timeout=5000).strip()
         except:
@@ -103,19 +100,17 @@ def scrape_single(page, url):
                 except:
                     pass
 
-        # Availability check
+        # Availability
         availability = ""
         try:
             availability = page.locator("#availability").text_content().lower()
         except:
             pass
 
-        if "unavailable" in availability or "currently unavailable" in availability:
+        if "unavailable" in availability:
             price = "NOT FOUND"
         elif found_price:
             price = found_price
-        else:
-            price = "NOT FOUND"
 
         # SELLER
         seller = "N/A"
@@ -155,19 +150,25 @@ def scrape_single(page, url):
         }
 
 # ==========================
-# 🔁 MAIN SCRAPER
+# 🔁 MAIN SCRAPER (CLOUD SAFE)
 # ==========================
 def scrape_amazon(urls):
     all_data = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu"
+            ]
+        )
 
         pages = [browser.new_page() for _ in range(min(5, len(urls)))]
 
         for i, url in enumerate(urls):
             page = pages[i % len(pages)]
-
             st.write(f"⚡ Fetching: {url}")
 
             data = scrape_single(page, url)
@@ -180,19 +181,18 @@ def scrape_amazon(urls):
 # ==========================
 # ▶️ RUN BUTTON
 # ==========================
-if st.button("🚀 Run Scraper (Fast)"):
+if st.button("🚀 Run Scraper"):
 
     urls = [u.strip() for u in urls_input.split("\n") if u.strip()]
 
     if not urls:
         st.warning("⚠️ Please enter at least one URL")
-
     else:
         df = scrape_amazon(urls)
 
         st.session_state["df_data"] = df
 
-        st.success("✅ Scraping Completed (Fast Mode)")
+        st.success("✅ Scraping Completed")
 
         st.dataframe(df, width='stretch')
 
@@ -212,6 +212,6 @@ if "df_data" in st.session_state:
 
         try:
             upload_to_sheets(st.session_state["df_data"], sheet_name_input)
-            st.success("✅ Uploaded to Google Sheets with custom sheet name")
+            st.success("✅ Uploaded to Google Sheets")
         except Exception as e:
             st.error(f"❌ Upload failed: {e}")
