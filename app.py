@@ -1,3 +1,5 @@
+import os
+os.system("playwright install")
 import streamlit as st
 import pandas as pd
 import re
@@ -31,9 +33,14 @@ def upload_to_sheets(df, custom_name=None):
         "https://www.googleapis.com/auth/drive"
     ]
 
-    creds = ServiceAccountCredentials.from_json_keyfile_name(
-        "credentials.json", scope
+    import json
+
+    creds_dict = st.secrets["gcp_service_account"]
+    
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        creds_dict, scope
     )
+    
 
     client = gspread.authorize(creds)
 
