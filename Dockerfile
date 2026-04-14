@@ -6,13 +6,15 @@ COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ✅ FORCE CLEAN INSTALL (no cache issue)
+# 🔥 force clean install (remove broken cache)
+RUN rm -rf /root/.cache/ms-playwright
 RUN rm -rf /ms-playwright
 
-# ✅ INSTALL ALL BROWSERS PROPERLY
-RUN playwright install --with-deps chromium
+# 🔥 install browsers in correct location
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install chromium
 
-# ✅ VERIFY INSTALL (important)
+# 🔥 debug (you should see chromium files in logs)
 RUN ls -la /ms-playwright
 
 EXPOSE 8080
