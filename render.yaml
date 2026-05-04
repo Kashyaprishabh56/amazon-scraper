@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: amazon-scraper
+    env: docker
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false

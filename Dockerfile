@@ -1,22 +1,19 @@
 FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt \
+    && python -m playwright install --with-deps chromium
 
 COPY . .
 
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 🔥 force clean install (remove broken cache)
-RUN rm -rf /root/.cache/ms-playwright
-RUN rm -rf /ms-playwright
-
-# 🔥 install browsers in correct location
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN playwright install chromium
-
-# 🔥 debug (you should see chromium files in logs)
-RUN ls -la /ms-playwright
-
 EXPOSE 8080
 
-CMD ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0"]
+CMD ["sh", "-c", "streamlit run app.py --server.address=0.0.0.0 --server.port=${PORT:-8080} --server.headless=true --browser.gatherUsageStats=false"]
